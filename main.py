@@ -1,3 +1,4 @@
+
 import argparse
 import random
 from time import sleep
@@ -58,20 +59,20 @@ class MongodbManager:
         return self.collectSession.find_one({"url":link})
 
     def UpdateParsedLink(self, id):
-        self.collectLink.update_one({"_id": id}, {"$set": {"parsed": True}})
+        self.collectLink.update_one({"_id": id}, {"$set": {"status": "Termine"}})
     def getLink(self, id):
-        numdoc = self.collectLink.count_documents({"sessionId": id, "parsed":False})
+        numdoc = self.collectLink.count_documents({"sessionId": id, "status":"En-attente"})
         while numdoc == 0:
-            numdoc = self.collectLink.count_documents({"sessionId": id, "parsed": False})
+            numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
         RandomNumber = random.randint(1,numdoc)
-        return self.collectLink.find({"sessionId": id, "parsed":False}).limit(-1).skip(RandomNumber).next()
+        return self.collectLink.find_one_and_update({"sessionId": id, "status":"En-attente"},{"$set":{"status":"En-cours", "Date":datetime.now()}})
 
 
 # récupère un lien à partir de la collection Scrapper_Link en fonction de l'id
     def insertLinks(self, links, id, idsession):
         linkss= []
         for link in links:
-            linkss.append({"link": link[0], "value": link[1], "idPage": id, "sessionId": idsession, "parsed": False})
+            linkss.append({"link": link[0], "value": link[1], "idPage": id, "sessionId": idsession, "status": "En-attente"})
         if not linkss == []:
             self.collectLink.insert_many(linkss)
 
@@ -194,10 +195,13 @@ def run():
                 mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
         mongodb.UpdateParsedLink(link.get("_id"))
 
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('url', help='url')
 parser.add_argument('first', help='first to execute')
 args = parser.parse_args()
+
 
 # selon les arguments le script commence par la première exécution ou/puis par la fonction exec
 if __name__ == '__main__':
