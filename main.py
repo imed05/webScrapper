@@ -1,7 +1,6 @@
 # This is a sample Python script.
 import argparse
 import random
-import threading
 from time import sleep
 from datetime import datetime
 import requests
@@ -22,7 +21,7 @@ def retry(func, retries=10):
                 return func(*args, **kwargs)
             except requests.exceptions.RequestException as e:
                 print(e)
-                sleep(10)
+                sleep(60)
                 attempts += 1
 
     return retry_wrapper
@@ -49,13 +48,20 @@ class MongodbManager:
             print(" duplicate ", link ,str(e))
 
     def numbreOfDoc(self, idsession):
-        return self.collectSession.find_one_and_update({"_id": idsession},{"$inc":{"restParsedPage":-1}})
+        return self.collectSession.find_one({"_id": idsession})
+
+    def numbreOfDocAndUpdate(self, idsession):
+        return self.collectSession.find_one_and_update({"_id": idsession}, {"$inc": {"restParsedPage": -1}})
     def getPage(self, idsession):
         return self.collect.find_one({"sessionId":idsession})
     def getSession(self, link):
         return self.collectSession.find_one({"url":link})
     def getLink(self, id):
-        return self.collectLink.find_one({"sessionId": id, "parsed":False})
+        numdoc = self.collectLink.count_documents({"sessionId": id, "parsed":False})
+        while numdoc == 0:
+            numdoc = self.collectLink.count_documents({"sessionId": id, "parsed": False})
+        RandomNumber = random.randint(1,numdoc)
+        return self.collectLink.find({"sessionId": id, "parsed":False}).limit(-1).skip(RandomNumber).next()
     def insertLinks(self, links, id, idsession):
         linkss= []
         for link in links:
@@ -66,7 +72,7 @@ class MongodbManager:
         self.collectLink.update_one({"_id":id},{"$set":{"parsed":True}})
 
     def insertSession(self,url):
-        data = {'url':url,'date':datetime.now(),'restParsedPage':10}
+        data = {'url':url,'date':datetime.now(),'restParsedPage': 9}
         return self.collectSession.insert_one(data)
 
 class WebScrapper:
@@ -106,16 +112,18 @@ class WebScrapper:
     @retry
     def getHtmlContent(self):
         response = None
-        if(self.cookies is not None) :
-            response = requests.get(self.url, cookies=self.cookies)
-        else:
-            response = requests.get(self.url)
-
-        self.cookies = response.cookies
-        if response.status_code == 200:
-            return (response.content, response.text)
-        else:
-            return None
+        for i in range(0,10):
+            if(self.cookies is not None) :
+                response = requests.get(self.url, cookies=self.cookies)
+            else:
+                response = requests.get(self.url)
+            self.cookies = response.cookies
+            if response.status_code == 200:
+                return (response.content, response.text)
+            else:
+                print(self.url)
+                sleep(10)
+        return None,None
 
         # scrapping emphasis
     def extract_emphasis(self, html_content):
@@ -148,24 +156,21 @@ class WebScrapper:
                     if self.Scope(href):
                         links.append((href, valeur))
         return list(set(links))
-def exec():
+def run():
     session = mongodb.getSession(args.url)
     while session is None:
         session = mongodb.getSession(args.url)
-
     while mongodb.numbreOfDoc(session.get("_id")).get("restParsedPage") > 1:
-        page = mongodb.getPage(session.get("_id"))
         link = mongodb.getLink(session.get("_id"))
         ws = WebScrapper(link.get("link"), 10)
         content, text = ws.getHtmlContent()
         if content is not None:
             links = ws.extract_Links(content)
-            result = mongodb.insert(session.get("_id"),link.get("link"), text, ws.extract_title(content),
+            if mongodb.numbreOfDocAndUpdate(session.get("_id")).get("restParsedPage") > 0:
+                result = mongodb.insert(session.get("_id"),link.get("link"), text, ws.extract_title(content),
                                     ws.extract_headings(content), ws.extract_emphasis(content))
-
-            mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
-            mongodb.UpdateParsedLink(link.get("_id"))
-
+                mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
+        mongodb.UpdateParsedLink(link.get("_id"))
 parser = argparse.ArgumentParser()
 parser.add_argument('url', help='url')
 parser.add_argument('first', help='first to execute')
@@ -184,9 +189,9 @@ if __name__ == '__main__':
                 mongodb.insertLinks(links,result.inserted_id,session.inserted_id)
             except DuplicateKeyError as e:
                     print(str(e))
-            exec()
+            run()
     else:
-        exec()
+        run()
 
 
 
