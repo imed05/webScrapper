@@ -9,10 +9,6 @@ from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 
 
-# Press Maj+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-
 def retry(func, retries=10):
     def retry_wrapper(*args, **kwargs):
         attempts = 0
