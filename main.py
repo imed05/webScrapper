@@ -1,12 +1,12 @@
 
 import argparse
-import random
 from time import sleep
 from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
+from Config import urlDB
 
 
 # décorateur qui gérera les problèmes de connectivité lors du scraping
@@ -27,7 +27,7 @@ def retry(func, retries=10):
 # classe qui gère l'intéraction avec la bdd mongodb
 class MongodbManager:
     def __init__(self):
-        self.client = MongoClient("mongodb://10.13.53.131:27017")
+        self.client = MongoClient(urlDB)
         self.db = self.client['Scrapper']
         self.collect = self.db['Scrapper_data']
         self.collectLink = self.db['Scrapper_Link']
@@ -54,18 +54,23 @@ class MongodbManager:
         return self.collectSession.find_one_and_update({"_id": idsession}, {"$inc": {"restParsedPage": -1}})
     def getPage(self, idsession):
         return self.collect.find_one({"sessionId":idsession})
+    def getPageByLinkAndSession(self, link, idSeesion):
+        return self.collect.find_one({"sessionId":idSeesion,"link":link})
 # récupère une session à partir de la collection Session en fonction de l'url
     def getSession(self, link):
         return self.collectSession.find_one({"url":link})
 
     def UpdateParsedLink(self, id):
         self.collectLink.update_one({"_id": id}, {"$set": {"status": "Termine"}})
+    def UpdateWipLink(self, id):
+        self.collectLink.update_one({"_id": id}, {"$set": {"status": "En-attente"}})
     def getLink(self, id):
         numdoc = self.collectLink.count_documents({"sessionId": id, "status":"En-attente"})
         while numdoc == 0:
             numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
-        RandomNumber = random.randint(1,numdoc)
         return self.collectLink.find_one_and_update({"sessionId": id, "status":"En-attente"},{"$set":{"status":"En-cours", "Date":datetime.now()}})
+    def getWiplinks(self, sessionId):
+        return self.collectLink.find_one_and_update({"sessionId": sessionId, "status": "En-cours"},{"$set":{"status":"Termine"}})
 
 
 # récupère un lien à partir de la collection Scrapper_Link en fonction de l'id
@@ -122,7 +127,7 @@ class WebScrapper:
             heading_tags = soup.find_all(f'h{level}')
             for heading_tag in heading_tags:
                 headings.append(("h" + str(level), heading_tag.text.strip()))
-        return headings
+        return list(set(headings))
 
     # extrait contenu html grâce à la fonction retry en décorateur
     # utilisation du décorateur uniquement sur le contenu car il n'y a que le contenu qui utilise les requêtes https
@@ -152,7 +157,7 @@ class WebScrapper:
             tag_name = tag.name
             tag_content = tag.get_text().strip()
             emphasis_data.append((tag_name, tag_content))
-        return emphasis_data
+        return list(set(emphasis_data))
 
     # vérifie si un lien reste dans le même domaine que l'url de départ
     def scope(self, link):
@@ -194,8 +199,20 @@ def run():
                                     ws.extract_headings(content), ws.extract_emphasis(content))
                 mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
         mongodb.UpdateParsedLink(link.get("_id"))
+    sleep(30)
+    statusManager(session.get("_id"))
 
-
+def statusManager(id):
+    Link = mongodb.getWiplinks(id)
+    page = mongodb.getPageByLinkAndSession(Link.get("link"),id)
+    if page is None:
+        mongodb.UpdateWipLink(Link.get("_id"))
+    else:
+        ws = WebScrapper(Link.get("link"), 10)
+        content, text = ws.gethtmlcontent()
+        if content is not None:
+            links = ws.extract_Links(content)
+            mongodb.insertLinks(links, page.get("_id"), id)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('url', help='url')
