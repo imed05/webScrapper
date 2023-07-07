@@ -1,4 +1,4 @@
-
+from flask import Flask, render_template, redirect, url_for, request, session, flash, app, Blueprint, jsonify
 import argparse
 from time import sleep
 from datetime import datetime
@@ -186,11 +186,11 @@ class WebScrapper:
                         links.append((href, valeur))
         return list(set(links))
 
-def run():
-    session = mongodb.getSession(args.url)
+def run(mongodb,url):
+    session = mongodb.getSession(url)
 
     while session is None:
-        session = mongodb.getSession(args.url)
+        session = mongodb.getSession(url)
     while mongodb.numbreOfDoc(session.get("_id")).get("restParsedPage") > 0:
         link = mongodb.getLink(session.get("_id"))
         ws = WebScrapper(link.get("link"), 10)
@@ -206,9 +206,9 @@ def run():
     Link = mongodb.getWiplinks(session.get("_id"))
     if Link is not None:
         sleep(30)
-        statusManager(session.get("_id"), Link)
+        statusManager(mongodb,session.get("_id"), Link)
 
-def statusManager(id,Link):
+def statusManager(mongodb,id,Link):
 
     page = mongodb.getPageByLinkAndSession(Link.get("link"),id)
     if page is None:
@@ -220,29 +220,37 @@ def statusManager(id,Link):
             links = ws.extract_Links(content)
             mongodb.insertLinks(links, page.get("_id"), id)
 
-parser = argparse.ArgumentParser()
-parser.add_argument('url', help='url')
-parser.add_argument('first', help='first to execute')
-args = parser.parse_args()
 
-
-# selon les arguments le script commence par la première exécution ou/puis par la fonction exec
-if __name__ == '__main__':
+app = Flask(__name__)
+@app.route("/api/scrape" ,methods=['POST'])
+def scraper():
+    url_params = request.args
+    # Retrieve parameters which are present
+    url = url_params['url']
+    first = url_params['first']
+    session = None
     mongodb = MongodbManager()
-    if args.first == 'True':
-        ws = WebScrapper(args.url, 10)
+    if first == 'True':
+        ws = WebScrapper(url, 10)
         content, text = ws.gethtmlcontent()
         if content is not None:
             links = ws.extract_Links(content)
             try:
-                session = mongodb.insertSession(args.url)
-                result = mongodb.insert(session.inserted_id, args.url, text, ws.extract_title(content),
+                session = mongodb.insertSession(url)
+                result = mongodb.insert(session.inserted_id, url, text, ws.extract_title(content),
                                         ws.extract_headings(content), ws.extract_emphasis(content))
                 mongodb.insertLinks(links, result.inserted_id, session.inserted_id)
             except DuplicateKeyError as e:
                 print(str(e))
-            run()
+            run(mongodb,url)
     else:
-        run()
+        run(mongodb,url)
+    object ={ "sessionId": str(session.inserted_id)}
+    return jsonify(object)
+
+# selon les arguments le script commence par la première exécution ou/puis par la fonction exec
+if __name__ == '__main__':
+    app.run(debug=True)
+
 
 
