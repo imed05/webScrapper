@@ -199,11 +199,14 @@ def run():
                                     ws.extract_headings(content), ws.extract_emphasis(content))
                 mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
         mongodb.UpdateParsedLink(link.get("_id"))
-    sleep(30)
-    statusManager(session.get("_id"))
 
-def statusManager(id):
     Link = mongodb.getWiplinks(id)
+    if Link is not None:
+        sleep(30)
+        statusManager(session.get("_id"), Link)
+
+def statusManager(id,Link):
+
     page = mongodb.getPageByLinkAndSession(Link.get("link"),id)
     if page is None:
         mongodb.UpdateWipLink(Link.get("_id"))
