@@ -264,10 +264,12 @@ def scraper():
             run(mongodb, url)
     else:
         run(mongodb, url)
-    object_1 = {"sessionId": str(session.inserted_id)}
-    return jsonify(object_1)
-
-
+    if session is not None:
+        object_1 = {"sessionId": str(session.inserted_id)}
+        return jsonify(object_1)
+    else:
+        object_1 = {"sessionId": "thank you for your participation"}
+        return jsonify(object_1)
 parser = argparse.ArgumentParser()
 parser.add_argument('url', help='url de la base de données')
 args = parser.parse_args()
