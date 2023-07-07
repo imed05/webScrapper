@@ -1,8 +1,6 @@
-from flask import Flask, render_template, redirect, url_for, request, session, flash, app, Blueprint, jsonify
-import argparse
+from flask import Flask, request, jsonify
 from time import sleep
 from datetime import datetime
-
 import pymongo
 import requests
 from bs4 import BeautifulSoup
@@ -48,44 +46,56 @@ class MongodbManager:
             return self.collect.insert_one(document)
         except DuplicateKeyError as e:
             print(" duplicate ", link, str(e))
-# met à jour le nombre de documents restants à traiter pour une session donnée
+
+    # met à jour le nombre de documents restants à traiter pour une session donnée
     def numbreOfDoc(self, idsession):
         return self.collectSession.find_one({"_id": idsession})
-# récupère une page à partir de la collection Scrapper_data en fonction de l'id de session
+
+    # récupère une page à partir de la collection Scrapper_data en fonction de l'id de session
     def numbreOfDocAndUpdate(self, idsession):
         return self.collectSession.find_one_and_update({"_id": idsession}, {"$inc": {"restParsedPage": -1}})
+
     def getPage(self, idsession):
-        return self.collect.find_one({"sessionId":idsession})
+        return self.collect.find_one({"sessionId": idsession})
+
     def getPageByLinkAndSession(self, link, idSeesion):
-        return self.collect.find_one({"sessionId":idSeesion,"link":link})
-# récupère une session à partir de la collection Session en fonction de l'url
+        return self.collect.find_one({"sessionId": idSeesion, "link": link})
+
+    # récupère une session à partir de la collection Session en fonction de l'url
     def getSession(self, link):
-        return self.collectSession.find_one({"url":link},sort=[( 'date', pymongo.DESCENDING )])
+        return self.collectSession.find_one({"url": link}, sort=[('date', pymongo.DESCENDING)])
 
     def UpdateParsedLink(self, id):
         self.collectLink.update_one({"_id": id}, {"$set": {"status": "Termine"}})
+
     def UpdateWipLink(self, id):
         self.collectLink.update_one({"_id": id}, {"$set": {"status": "En-attente"}})
+
+    # initialisation du statut d'une session
     def getLink(self, id):
-        numdoc = self.collectLink.count_documents({"sessionId": id, "status":"En-attente"})
+        numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
         while numdoc == 0:
             numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
-        return self.collectLink.find_one_and_update({"sessionId": id, "status":"En-attente"},{"$set":{"status":"En-cours", "Date":datetime.now()}})
+        return self.collectLink.find_one_and_update({"sessionId": id, "status": "En-attente"},
+                                                    {"$set": {"status": "En-cours", "Date": datetime.now()}})
+
+    # changement de statut de la session
     def getWiplinks(self, sessionId):
-        return self.collectLink.find_one_and_update({"sessionId": sessionId, "status": "En-cours"},{"$set":{"status":"Termine"}})
+        return self.collectLink.find_one_and_update({"sessionId": sessionId, "status": "En-cours"},
+                                                    {"$set": {"status": "Termine"}})
 
-
-# récupère un lien à partir de la collection Scrapper_Link en fonction de l'id
+    # récupère un lien à partir de la collection Scrapper_Link en fonction de l'id
     def insertLinks(self, links, id, idsession):
-        linkss= []
+        linkss = []
         for link in links:
-            linkss.append({"link": link[0], "value": link[1], "idPage": id, "sessionId": idsession, "status": "En-attente"})
+            linkss.append({"link": link[0], "value": link[1], "idPage": id, "sessionId": idsession,
+                           "status": "En-attente"})
         if not linkss == []:
             self.collectLink.insert_many(linkss)
 
-# insère une nouvelle session dans la collection Session avec l'url spécifiée.
-    def insertSession(self,url):
-        data = {'url':url,'date':datetime.now(),'restParsedPage': 9}
+    # insère une nouvelle session dans la collection Session avec l'url spécifiée.
+    def insertSession(self, url):
+        data = {'url': url, 'date': datetime.now(), 'restParsedPage': 9}
         return self.collectSession.insert_one(data)
 
 
@@ -136,19 +146,18 @@ class WebScrapper:
     @retry
     def gethtmlcontent(self):
         response = None
-        for i in range(0,10):
-            if(self.cookies is not None) :
+        for i in range(0, 10):
+            if self.cookies is not None:
                 response = requests.get(self.url, cookies=self.cookies)
             else:
                 response = requests.get(self.url)
             self.cookies = response.cookies
             if response.status_code == 200:
-                return (response.content, response.text)
+                return response.content, response.text
             else:
                 print(self.url)
                 sleep(10)
-        return None,None
-
+        return None, None
 
     # extrait les emphases (balises em, strong, i, b)
     def extract_emphasis(self, html_content):
@@ -186,7 +195,9 @@ class WebScrapper:
                         links.append((href, valeur))
         return list(set(links))
 
-def run(mongodb,url):
+
+# fonction principale du script
+def run(mongodb, url):
     session = mongodb.getSession(url)
 
     while session is None:
@@ -198,19 +209,20 @@ def run(mongodb,url):
         if content is not None:
             links = ws.extract_Links(content)
             if mongodb.numbreOfDocAndUpdate(session.get("_id")).get("restParsedPage") > 0:
-                result = mongodb.insert(session.get("_id"),link.get("link"), text, ws.extract_title(content),
-                                    ws.extract_headings(content), ws.extract_emphasis(content))
-                mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
+                result = mongodb.insert(session.get("_id"), link.get("link"), text, ws.extract_title(content),
+                                        ws.extract_headings(content), ws.extract_emphasis(content))
+                mongodb.insertLinks(links, result.inserted_id, session.get("_id"))
         mongodb.UpdateParsedLink(link.get("_id"))
 
     Link = mongodb.getWiplinks(session.get("_id"))
     if Link is not None:
         sleep(30)
-        statusManager(mongodb,session.get("_id"), Link)
+        statusManager(mongodb, session.get("_id"), Link)
 
-def statusManager(mongodb,id,Link):
 
-    page = mongodb.getPageByLinkAndSession(Link.get("link"),id)
+# gère les status en-cours en fin de session lorsqu'une machine tombe en panne et prise en charge
+def statusManager(mongodb, id, Link):
+    page = mongodb.getPageByLinkAndSession(Link.get("link"), id)
     if page is None:
         mongodb.UpdateWipLink(Link.get("_id"))
     else:
@@ -222,10 +234,13 @@ def statusManager(mongodb,id,Link):
 
 
 app = Flask(__name__)
-@app.route("/api/scrape" ,methods=['POST'])
+
+
+# fonctionnement API
+@app.route("/api/scrape", methods=['POST'])
 def scraper():
     url_params = request.args
-    # Retrieve parameters which are present
+    #
     url = url_params['url']
     first = url_params['first']
     session = None
@@ -242,15 +257,12 @@ def scraper():
                 mongodb.insertLinks(links, result.inserted_id, session.inserted_id)
             except DuplicateKeyError as e:
                 print(str(e))
-            run(mongodb,url)
+            run(mongodb, url)
     else:
-        run(mongodb,url)
-    object ={ "sessionId": str(session.inserted_id)}
+        run(mongodb, url)
+    object = {"sessionId": str(session.inserted_id)}
     return jsonify(object)
 
-# selon les arguments le script commence par la première exécution ou/puis par la fonction exec
+
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-
