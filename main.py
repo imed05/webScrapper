@@ -1,3 +1,5 @@
+import argparse
+
 from flask import Flask, request, jsonify
 from time import sleep
 from datetime import datetime
@@ -27,7 +29,7 @@ def retry(func, retries=10):
 # classe qui gère l'intéraction avec la bdd mongodb
 class MongodbManager:
     def __init__(self):
-        self.client = MongoClient(urlDB)
+        self.client = MongoClient(args.url)
         self.db = self.client['Scrapper']
         self.collect = self.db['Scrapper_data']
         self.collectLink = self.db['Scrapper_Link']
@@ -65,18 +67,18 @@ class MongodbManager:
     def getSession(self, link):
         return self.collectSession.find_one({"url": link}, sort=[('date', pymongo.DESCENDING)])
 
-    def UpdateParsedLink(self, id):
-        self.collectLink.update_one({"_id": id}, {"$set": {"status": "Termine"}})
+    def UpdateParsedLink(self, id_1):
+        self.collectLink.update_one({"_id": id_1}, {"$set": {"status": "Termine"}})
 
-    def UpdateWipLink(self, id):
-        self.collectLink.update_one({"_id": id}, {"$set": {"status": "En-attente"}})
+    def UpdateWipLink(self, id_1):
+        self.collectLink.update_one({"_id": id_1}, {"$set": {"status": "En-attente"}})
 
     # initialisation du statut d'une session
-    def getLink(self, id):
-        numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
+    def getLink(self, id81):
+        numdoc = self.collectLink.count_documents({"sessionId": id81, "status": "En-attente"})
         while numdoc == 0:
-            numdoc = self.collectLink.count_documents({"sessionId": id, "status": "En-attente"})
-        return self.collectLink.find_one_and_update({"sessionId": id, "status": "En-attente"},
+            numdoc = self.collectLink.count_documents({"sessionId": id81, "status": "En-attente"})
+        return self.collectLink.find_one_and_update({"sessionId": id81, "status": "En-attente"},
                                                     {"$set": {"status": "En-cours", "Date": datetime.now()}})
 
     # changement de statut de la session
@@ -85,10 +87,10 @@ class MongodbManager:
                                                     {"$set": {"status": "Termine"}})
 
     # récupère un lien à partir de la collection Scrapper_Link en fonction de l'id
-    def insertLinks(self, links, id, idsession):
+    def insertLinks(self, links, id_1, idsession):
         linkss = []
         for link in links:
-            linkss.append({"link": link[0], "value": link[1], "idPage": id, "sessionId": idsession,
+            linkss.append({"link": link[0], "value": link[1], "idPage": id_1, "sessionId": idsession,
                            "status": "En-attente"})
         if not linkss == []:
             self.collectLink.insert_many(linkss)
@@ -123,7 +125,8 @@ class WebScrapper:
             return link[0] + "." + link[1]
 
     # extrait le titre
-    def extract_title(self, html_content):
+    @staticmethod
+    def extract_title(html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         title_tag = soup.find('title')
         if title_tag:
@@ -132,7 +135,8 @@ class WebScrapper:
             return None
 
     # extrait les en-têtes (h1 à h6)
-    def extract_headings(self, html_content):
+    @staticmethod
+    def extract_headings(html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         headings = []
         for level in range(1, 7):
@@ -160,7 +164,8 @@ class WebScrapper:
         return None, None
 
     # extrait les emphases (balises em, strong, i, b)
-    def extract_emphasis(self, html_content):
+    @staticmethod
+    def extract_emphasis(html_content):
         soup = BeautifulSoup(html_content, 'html.parser')
         emphasis_tags = soup.find_all(['em', 'strong', 'i', 'b'])
         emphasis_data = []
@@ -221,8 +226,8 @@ def run(mongodb, url):
 
 
 # gère les status en-cours en fin de session lorsqu'une machine tombe en panne et prise en charge
-def statusManager(mongodb, id, Link):
-    page = mongodb.getPageByLinkAndSession(Link.get("link"), id)
+def statusManager(mongodb, id_1, Link):
+    page = mongodb.getPageByLinkAndSession(Link.get("link"), id_1)
     if page is None:
         mongodb.UpdateWipLink(Link.get("_id"))
     else:
@@ -230,7 +235,7 @@ def statusManager(mongodb, id, Link):
         content, text = ws.gethtmlcontent()
         if content is not None:
             links = ws.extract_Links(content)
-            mongodb.insertLinks(links, page.get("_id"), id)
+            mongodb.insertLinks(links, page.get("_id"), id_1)
 
 
 app = Flask(__name__)
@@ -260,9 +265,13 @@ def scraper():
             run(mongodb, url)
     else:
         run(mongodb, url)
-    object = {"sessionId": str(session.inserted_id)}
-    return jsonify(object)
+    object_1 = {"sessionId": str(session.inserted_id)}
+    return jsonify(object_1)
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('url', help='url de la base de données')
+args = parser.parse_args()
 
 if __name__ == '__main__':
     app.run(debug=True)
