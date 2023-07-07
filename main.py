@@ -2,6 +2,8 @@
 import argparse
 from time import sleep
 from datetime import datetime
+
+import pymongo
 import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
@@ -31,7 +33,7 @@ class MongodbManager:
         self.db = self.client['Scrapper']
         self.collect = self.db['Scrapper_data']
         self.collectLink = self.db['Scrapper_Link']
-        self.collect.create_index("link", unique=True)
+        self.collect.create_index(["sessionId", "link"], unique=True)
         self.collectSession = self.db['Session']
 
     # insère les éléments html, le lien et le numéro de session d'une page sous forme de document
@@ -58,7 +60,7 @@ class MongodbManager:
         return self.collect.find_one({"sessionId":idSeesion,"link":link})
 # récupère une session à partir de la collection Session en fonction de l'url
     def getSession(self, link):
-        return self.collectSession.find_one({"url":link})
+        return self.collectSession.find_one({"url":link},sort=[( 'date', pymongo.DESCENDING )])
 
     def UpdateParsedLink(self, id):
         self.collectLink.update_one({"_id": id}, {"$set": {"status": "Termine"}})
@@ -186,6 +188,7 @@ class WebScrapper:
 
 def run():
     session = mongodb.getSession(args.url)
+
     while session is None:
         session = mongodb.getSession(args.url)
     while mongodb.numbreOfDoc(session.get("_id")).get("restParsedPage") > 0:
