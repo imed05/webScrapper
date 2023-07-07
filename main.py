@@ -8,7 +8,6 @@ import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
-from Config import urlDB
 
 
 # décorateur qui gérera les problèmes de connectivité lors du scraping
