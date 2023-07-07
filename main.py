@@ -200,7 +200,7 @@ def run():
                 mongodb.insertLinks(links, result.inserted_id,session.get("_id"))
         mongodb.UpdateParsedLink(link.get("_id"))
 
-    Link = mongodb.getWiplinks(id)
+    Link = mongodb.getWiplinks(session.get("_id"))
     if Link is not None:
         sleep(30)
         statusManager(session.get("_id"), Link)
